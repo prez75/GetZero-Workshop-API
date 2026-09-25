@@ -1,0 +1,264 @@
+from flask import Flask, request, render_template_string, jsonify
+import os
+import requests
+
+app = Flask(__name__)
+
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY", "YOUR_API_KEY_HERE")
+WEATHER_API_URL = "https://api.openweathermap.org/data/2.5/weather"
+
+CLIMATE_TIPS_FULL = [
+    "Reduce car use by walking, cycling, or using public transport.",
+    "Eat more plant‑based meals to lower your carbon footprint.",
+    "Unplug devices when not in use to save energy.",
+    "Buy local and seasonal foods to reduce transport emissions.",
+    "Lower your heating by 1°C to cut energy use.",
+    "Avoid fast fashion — repair, reuse, and recycle clothing.",
+    "Use LED bulbs instead of incandescent lighting.",
+    "Take shorter showers to conserve water and energy.",
+    "Support renewable energy providers when possible.",
+    "Reduce waste by choosing reusable bottles and bags."
+]
+
+
+
+def get_weather_for_region(region: str):
+    if not WEATHER_API_KEY or WEATHER_API_KEY == "YOUR_API_KEY_HERE":
+        return {
+            "location": region,
+            "temp": 18,
+            "description": "Partly cloudy",
+            "source": "Mock data (satellites, buoys, stations, API)",
+        }
+
+    params = {"q": region, "appid": WEATHER_API_KEY, "units": "metric"}
+    resp = requests.get(WEATHER_API_URL, params=params, timeout=5)
+    resp.raise_for_status()
+    data = resp.json()
+
+    return {
+        "location": data.get("name", region),
+        "temp": round(data["main"]["temp"]),
+        "description": data["weather"][0]["description"].title(),
+        "source": "Weather API (aggregated from satellites, buoys, stations)",
+    }
+
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Climate Action Weather</title>
+    <style>
+        :root { --base-font-size: 18px; }
+        body {
+            font-family: system-ui, sans-serif;
+            font-size: var(--base-font-size);
+            margin: 0;
+            background: linear-gradient(135deg, #4facfe, #00f2fe);
+            color: #042b3b;
+            display: flex;
+            justify-content: center;
+            padding: 24px;
+        }
+        .app-container {
+            background: #ffffffee;
+            padding: 24px;
+            border-radius: 18px;
+            max-width: 480px;
+            width: 100%;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        }
+        h1 { text-align: center; color: #0b7285; }
+        .weather-card {
+            background: #e3f8ff;
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .weather-main { font-size: 2.4rem; font-weight: 700; }
+        .weather-desc { font-size: 1.1rem; margin-top: 4px; }
+        .location-label { font-weight: 600; margin-top: 8px; }
+        .source-label { font-size: 0.85rem; color: #495057; margin-top: 6px; }
+        .location-input {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 999px;
+            border: 1px solid #ced4da;
+            font-size: 1rem;
+            margin-bottom: 8px;
+        }
+        .privacy-note { font-size: 0.85rem; color: #495057; margin-bottom: 12px; }
+        .controls { display: flex; gap: 8px; margin-top: 16px; }
+        button {
+            flex: 1;
+            padding: 12px 16px;
+            font-size: 1rem;
+            border-radius: 999px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            color: #fff;
+            background: #0b7285;
+        }
+        button.secondary { background: #f59f00; }
+        button.small { flex: 0; min-width: 48px; padding: 8px 12px; }
+        .tip-card {
+            background: #e6ffed;
+            border-radius: 16px;
+            padding: 16px;
+            margin-top: 12px;
+            border-left: 6px solid #2f9e44;
+        }
+        .tip-title { font-weight: 700; color: #2f9e44; }
+    </style>
+</head>
+<body>
+<div class="app-container">
+    <h1>Climate Action Weather</h1>
+
+    <div class="weather-card">
+        {% if weather %}
+            <div class="weather-main">{{ weather.temp }}°C</div>
+            <div class="weather-desc">{{ weather.description }}</div>
+            <div class="location-label">Weather for your area: {{ weather.location }}</div>
+            <div class="source-label">Source: {{ weather.source }}</div>
+        {% else %}
+            <div class="weather-desc">Enter your city or area to see local weather.</div>
+        {% endif %}
+    </div>
+
+    <!-- ✅ FIXED INPUT SECTION ADDED BACK IN -->
+    <form class="location-form" method="POST" action="/">
+        <input
+            type="text"
+            name="region"
+            class="location-input"
+            placeholder="e.g. Camden, London"
+            required
+        />
+        <div class="privacy-note">
+            We only use a broad area name. Your exact location is never stored or shared.
+        </div>
+        <div class="controls">
+            <button type="submit">Show Weather</button>
+        </div>
+    </form>
+
+    <div class="tip-card">
+        <div class="tip-title">Climate Action Tip</div>
+        <div id="tip-text">{{ tip }}</div>
+    </div>
+
+    <div class="controls">
+        <button type="button" class="secondary" onclick="nextTip()">More Tips</button>
+        <button type="button" class="small" onclick="changeFontSize(-2)">A−</button>
+        <button type="button" class="small" onclick="changeFontSize(2)">A+</button>
+        <button type="button" onclick="window.location.href='/tips'">Climate Action Tips</button>
+    </div>
+</div>
+
+<script>
+    const tips = {{ tips_json | safe }};
+    let tipIndex = 0;
+    let baseFontSize = 18;
+
+    function nextTip() {
+        tipIndex = (tipIndex + 1) % tips.length;
+        document.getElementById("tip-text").innerText = tips[tipIndex];
+    }
+
+    function changeFontSize(delta) {
+        baseFontSize = Math.min(26, Math.max(14, baseFontSize + delta));
+        document.documentElement.style.setProperty('--base-font-size', baseFontSize + 'px');
+    }
+</script>
+</body>
+</html>
+"""
+
+
+@app.route("/", methods=["GET", "POST"])
+def home():
+    weather = None
+    tip = CLIMATE_TIPS_FULL[0]
+
+    if request.method == "POST":
+        region = request.form.get("region", "").strip()
+        if region:
+            weather = get_weather_for_region(region)
+
+    return render_template_string(
+        HTML_TEMPLATE,
+        weather=weather,
+        tip=tip,
+        tips_json=CLIMATE_TIPS_FULL,
+    )
+
+@app.route("/tips")
+def tips_screen():
+    return render_template_string("""
+    <html>
+    <head>
+        <title>Climate Action Tips</title>
+        <style>
+            body {
+                font-family: system-ui, sans-serif;
+                background: linear-gradient(135deg, #4facfe, #00f2fe);
+                color: #042b3b;
+                margin: 0;
+                padding: 24px;
+                display: flex;
+                justify-content: center;
+            }
+            .container {
+                background: #ffffffee;
+                padding: 24px;
+                border-radius: 18px;
+                max-width: 480px;
+                width: 100%;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            }
+            h1 {
+                text-align: center;
+                color: #0b7285;
+            }
+            .tip {
+                background: #e6ffed;
+                border-left: 6px solid #2f9e44;
+                padding: 12px;
+                border-radius: 12px;
+                margin-bottom: 12px;
+            }
+            button {
+                margin-top: 20px;
+                padding: 12px 20px;
+                border-radius: 999px;
+                border: none;
+                background: #0b7285;
+                color: white;
+                font-size: 1rem;
+                cursor: pointer;
+                width: 100%;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Climate Action Tips</h1>
+
+            {% for tip in tips %}
+                <div class="tip">{{ tip }}</div>
+            {% endfor %}
+
+            <button onclick="window.location.href='/'">Back to Weather</button>
+        </div>
+    </body>
+    </html>
+    """, tips=CLIMATE_TIPS_FULL)
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+ 
